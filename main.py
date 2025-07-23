@@ -14,7 +14,7 @@ def voice():
 
         client = openai.OpenAI()
         chat = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a friendly PostNord customer service AI that answers in Swedish."},
                 {"role": "user", "content": user_input}

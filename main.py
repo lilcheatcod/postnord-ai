@@ -1,74 +1,37 @@
 from flask import Flask, request, Response
+from twilio.twiml.voice_response import VoiceResponse
 import openai
 import os
-import requests
-from twilio.twiml.voice_response import VoiceResponse
-import re
 
 app = Flask(__name__)
 
-# Load API keys from environment
-openai.api_key = os.environ.get("OPENAI_API_KEY")
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
-ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID")
-
-# ElevenLabs TTS settings
-def speak(message: str) -> str:
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}/stream"
-    headers = {
-        "Accept": "audio/mpeg",
-        "xi-api-key": ELEVENLABS_API_KEY,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "text": message,
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.7,
-            "style": 1,
-            "use_speaker_boost": True
-        }
-    }
-    response = requests.post(url, headers=headers, json=payload)
-    with open("response.mp3", "wb") as f:
-        f.write(response.content)
-    return "/response.mp3"
-
-def clean_text(text):
-    return re.sub(r"[^A-Za-z0-9ÅÄÖåäö\s,.!?-]", "", text)
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 @app.route("/voice", methods=["POST"])
 def voice():
-    user_input = request.form.get("SpeechResult", "")
-    if not user_input:
-        user_input = "Användaren sa inget."
+    try:
+        user_input = "The customer has called PostNord. Respond as a helpful AI assistant. Speak Swedish."
 
-    messages = [
-        {"role": "system", "content": "Du är en emotionell och hjälpsam svensk kundtjänstrepresentant för PostNord. Hjälp kunden med deras frågor kring paketspårning, förseningar, tullproblem och ge tydliga instruktioner. Svara alltid med värme och empati."},
-        {"role": "user", "content": user_input}
-    ]
+        client = openai.OpenAI()
+        chat = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a friendly PostNord customer service AI that answers in Swedish."},
+                {"role": "user", "content": user_input}
+            ]
+        )
 
-    chat = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=messages,
-        temperature=0.8,
-        max_tokens=300
-    )
+        reply = chat.choices[0].message.content.strip()
 
-    gpt_reply = clean_text(chat.choices[0].message.content.strip())
-    audio_path = speak(f"ehh... {gpt_reply}")
+        # Respond to the call with TwiML
+        response = VoiceResponse()
+        response.say(reply, language='sv-SE', voice='Polly.Astrid')  # You can change voice if needed
+        return Response(str(response), mimetype='text/xml')
 
-    response = VoiceResponse()
-    response.play(f"https://{request.host}{audio_path}")
-    return Response(str(response), mimetype="application/xml")
-
-@app.route("/response.mp3", methods=["GET"])
-def serve_audio():
-    with open("response.mp3", "rb") as f:
-        return Response(f.read(), mimetype="audio/mpeg")
+    except Exception as e:
+        print(f"Error: {e}")
+        return Response("<Response><Say>Internt fel uppstod. Försök igen senare.</Say></Response>", mimetype='text/xml')
 
 if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 5000))  # required for Railway
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
